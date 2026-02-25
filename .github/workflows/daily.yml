@@ -2,8 +2,8 @@ name: Organic Chemistry Daily Radar
 
 on:
   schedule:
-    - cron: "0 0 * * *"
-  workflow_dispatch:
+    - cron: "0 0 * * *"  # 每天 UTC 时间 00:00 运行
+  workflow_dispatch:      # 允许手动触发
 
 jobs:
   run-daily-radar:
@@ -26,6 +26,8 @@ jobs:
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
+          # --- 新增这一行 ---
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }} 
         run: |
           cd organic-chem-radar
           python main.py
