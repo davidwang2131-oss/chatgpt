@@ -26,24 +26,21 @@ class SemanticFilter:
         self.client = OpenAI(api_key=api_key, base_url=BASE_URL)
 
     def _build_prompt(self, article: Dict[str, str]) -> str:
-        """Build the screening prompt for one paper."""
+        """更新提示词，增加类别标注"""
         return (
             "You are an expert in organic chemistry.\n"
             "Task:\n"
-            "1) Determine whether the paper belongs to at least one of:\n"
-            "   - Organic synthetic methodology\n"
-            "   - Carbene chemistry\n"
-            "   - Organometallic chemistry\n"
-            "2) If NOT related, output exactly: NO\n"
-            "3) If related, output STRICT JSON with keys: title_zh, abstract_zh, recommendation\n"
+            "1) Classify the paper into exactly one category: 'carbene', 'methodology', or 'none'.\n"
+            "   - 'carbene': Research specifically about carbene chemistry.\n"
+            "   - 'methodology': General organic synthetic methodology or organometallic catalysis.\n"
+            "2) If category is 'none', output: NO\n"
+            "3) If related, output STRICT JSON with keys: category, title_zh, abstract_zh, recommendation\n"
             "Requirements:\n"
-            "- abstract_zh should be 3-5 Chinese sentences.\n"
-            "- recommendation should focus on methodological innovation.\n\n"
+            "- abstract_zh: 3-5 Chinese sentences.\n"
+            "- recommendation: Focus on innovation.\n\n"
             f"Journal: {article.get('journal', '')}\n"
             f"Title: {article.get('title', '')}\n"
             f"Abstract: {article.get('abstract', '')}\n"
-            f"DOI: {article.get('doi', '')}\n"
-            f"Published date: {article.get('published_date', '')}\n"
         )
 
     def analyze_article(self, article: Dict[str, str], timeout: int = 60) -> Optional[Dict[str, Any]]:
