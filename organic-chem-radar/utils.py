@@ -18,19 +18,20 @@ def log(message: str) -> None:
     print(f"[{now}] {message}")
 
 
-def is_within_last_24h(published: datetime) -> bool:
-    """Check whether a datetime is within the last 24 hours.
+def is_within_last_7days(published: datetime) -> bool:
+    """检查日期是否在过去 7 天内。
 
     Args:
-        published: Publication datetime.
+        published: 出版日期。
 
     Returns:
-        True if published is in the past 24 hours, else False.
+        如果在过去 7 天内则返回 True，否则返回 False。
     """
     now = datetime.now(timezone.utc)
     if published.tzinfo is None:
         published = published.replace(tzinfo=timezone.utc)
-    return now - timedelta(hours=24) <= published <= now
+    # 将 timedelta(hours=24) 修改为 timedelta(days=7)
+    return now - timedelta(days=7) <= published <= now
 
 
 def deduplicate_by_doi(items: Iterable[dict]) -> List[dict]:
