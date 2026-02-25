@@ -37,7 +37,7 @@ RSS_SOURCES: Dict[str, str] = {
     "Science": "https://www.science.org/action/showFeed?type=axatoc&feed=rss&jc=science",
 }
 
-ALLOWED_TYPES = ("article", "research article", "communication")
+ALLOWED_TYPES = ("article", "research article", "review", "communication")
 DOI_PATTERN = re.compile(r"10\.\d{4,9}/[-._;()/:A-Za-z0-9]+")
 
 
