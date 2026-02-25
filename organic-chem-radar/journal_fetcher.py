@@ -10,7 +10,7 @@ from typing import Dict, List
 
 import feedparser
 
-from utils import is_within_last_24h, log
+from utils import is_within_last_7days, log
 
 RSS_SOURCES: Dict[str, str] = {
     "Journal of the American Chemical Society": "https://pubs.acs.org/action/showFeed?type=etoc&feed=rss&jc=jacsat",
