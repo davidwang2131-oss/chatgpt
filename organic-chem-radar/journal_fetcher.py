@@ -137,10 +137,12 @@ def fetch_recent_articles() -> List[dict]:
 
             for entry in feed.entries:
                 published = parse_datetime(entry)
-                if not published or not is_within_last_24h(published):
+                # 使用新的 7 天判断逻辑
+                if not published or not is_within_last_7days(published):
                     continue
                 if not is_allowed_article_type(entry):
                     continue
+                # ... 后续逻辑保持不变
 
                 article = {
                     "journal": journal,
