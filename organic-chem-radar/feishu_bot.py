@@ -31,27 +31,28 @@ class FeishuBot:
         if not articles:
             return "今日无符合条件的有机方法学相关论文"
 
-        lines = ["## Organic Chemistry Daily Radar（DeepSeek）"]
+        lines = []
 
         for idx, article in enumerate(articles, start=1):
             lines.extend(
                 [
-                    f"\n### {idx}. {article.get('journal', '')}",
+                    f"### {idx}. {article.get('journal', '')}",
                     f"- **英文标题**：{article.get('title', '')}",
                     f"- **中文标题**：{article.get('title_zh', '')}",
-                    f"- **DOI**：{article.get('doi', 'N/A') or 'N/A'}",
+                    f"- **DOI**：[{article.get('doi', 'N/A')}](https://doi.org/{article.get('doi', '')})",
                     f"- **发表日期**：{article.get('published_date', '')}",
                     "\n**中文摘要**",
                     article.get("abstract_zh", ""),
                     "\n**推荐理由**",
                     article.get("recommendation", ""),
+                    "\n---", 
                 ]
             )
 
         return "\n".join(lines)
 
     def send_markdown(self, markdown_text: str, timeout: int = 20) -> bool:
-        """Send markdown message to Feishu.
+        """Send markdown message to Feishu using interactive card format.
 
         Args:
             markdown_text: Markdown body to send.
@@ -60,15 +61,20 @@ class FeishuBot:
         Returns:
             True if request succeeds with Feishu success code.
         """
+        # 修复之前使用 post 类型导致不支持 md 标签的问题
         payload = {
-            "msg_type": "post",
-            "content": {
-                "post": {
-                    "zh_cn": {
-                        "title": "Organic Chemistry Daily Radar",
-                        "content": [[{"tag": "md", "text": markdown_text}]],
+            "msg_type": "interactive",
+            "card": {
+                "header": {
+                    "title": {"tag": "plain_text", "content": "Organic Chemistry Daily Radar"},
+                    "template": "orange",
+                },
+                "elements": [
+                    {
+                        "tag": "markdown",
+                        "content": markdown_text,
                     }
-                }
+                ],
             },
         }
 
