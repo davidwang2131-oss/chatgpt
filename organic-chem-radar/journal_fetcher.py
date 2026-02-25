@@ -64,18 +64,29 @@ def robust_fetch_rss(url: str, journal_name: str) -> list[dict]:
     return articles
 
 def fetch_recent_articles() -> list[dict]:
-    """获取所有配置期刊的最新文献。"""
+    """获取所有配置期刊的最新文献。已修正 RSC 和 Nature 的失效链接。"""
+    
+    # 2026 年最新有效的 RSS 链接列表
     journal_configs = [
+        # ACS 系列 (需要配合随机 User-Agent 请求)
         {"name": "JACS", "url": "https://pubs.acs.org/journal/jacsat/feed"},
         {"name": "ACS Catalysis", "url": "https://pubs.acs.org/journal/accacs/feed"},
         {"name": "Organic Letters", "url": "https://pubs.acs.org/journal/orlef7/feed"},
         {"name": "JOC", "url": "https://pubs.acs.org/journal/joceah/feed"},
+        
+        # Wiley 系列
         {"name": "Angewandte", "url": "https://onlinelibrary.wiley.com/feed/15213773/most-recent"},
-        {"name": "Chemical Science", "url": "https://www.rsc.org/publishing/journals/sc/rss.asp"},
-        {"name": "ChemComm", "url": "https://www.rsc.org/publishing/journals/cc/rss.asp"},
-        {"name": "Org. Chem. Front.", "url": "https://www.rsc.org/publishing/journals/qo/rss.asp"},
+        
+        # RSC 系列 (已修正为 2026 最新 RSS 路由)
+        {"name": "Chemical Science", "url": "https://www.rsc.org/rss/sc"},
+        {"name": "ChemComm", "url": "https://www.rsc.org/rss/cc"},
+        {"name": "Org. Chem. Front.", "url": "https://www.rsc.org/rss/qo"},
+        
+        # Nature 系列
         {"name": "Nature Chemistry", "url": "https://www.nature.com/nchem.rss"},
-        {"name": "Nature Synthesis", "url": "https://www.nature.com/natsynthesis.rss"},
+        {"name": "Nature Synthesis", "url": "https://www.nature.com/natsynthesis/index.xml"},
+        
+        # Thieme 系列 (服务器不稳定，建议增加重试逻辑)
         {"name": "Synthesis", "url": "https://www.thieme-connect.com/products/ejournals/journal/10.1055/s-00000084/rss.xml"},
         {"name": "Synlett", "url": "https://www.thieme-connect.com/products/ejournals/journal/10.1055/s-00000083/rss.xml"}
     ]
@@ -83,6 +94,7 @@ def fetch_recent_articles() -> list[dict]:
     all_articles = []
     for config in journal_configs:
         log(f"Fetching RSS for {config['name']}")
+        # 提示：确保你的 robust_fetch_rss 函数中设置了伪装浏览器头
         journal_articles = robust_fetch_rss(config['url'], config['name'])
         all_articles.extend(journal_articles)
         
