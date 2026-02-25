@@ -2,3 +2,5 @@ requests
 feedparser
 openai>=1.0.0
 python-dotenv
+beautifulsoup4
+lxml
