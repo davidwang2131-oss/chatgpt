@@ -46,7 +46,7 @@ class SemanticFilter:
         )
         try:
             response = self.gemini_client.chat.completions.create(
-                model="gemini-3.0-flash",
+                model="gemini-3-flash-preview",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.0,
                 timeout=12
