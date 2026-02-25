@@ -19,35 +19,32 @@ class FeishuBot:
         if not self.webhook_url:
             raise ValueError("FEISHU_WEBHOOK_URL is not set.")
 
-    def build_markdown(self, articles: List[dict]) -> str:
-        """Build Feishu markdown message.
-
-        Args:
-            articles: List of selected paper records.
-
-        Returns:
-            Markdown content for Feishu.
-        """
+    def build_markdown(self, articles: List[dict], has_carbene: bool = True) -> str:
+        """按照要求格式化输出，并增加卡宾检索结果提醒"""
+        lines = ["## Organic Chemistry Daily Radar"]
+        
+        # 状态提醒：如果没有卡宾文献，在开头明确说明
+        if not has_carbene:
+            lines.append("> 📢 **今日雷达监测结果：未发现最新的卡宾相关文献。**\n")
+        
         if not articles:
-            return "今日无符合条件的有机方法学相关论文"
-
-        lines = []
+            return "\n".join(lines) + "今日无符合条件的论文推荐。"
 
         for idx, article in enumerate(articles, start=1):
-            lines.extend(
-                [
-                    f"### {idx}. {article.get('journal', '')}",
-                    f"- **英文标题**：{article.get('title', '')}",
-                    f"- **中文标题**：{article.get('title_zh', '')}",
-                    f"- **DOI**：[{article.get('doi', 'N/A')}](https://doi.org/{article.get('doi', '')})",
-                    f"- **发表日期**：{article.get('published_date', '')}",
-                    "\n**中文摘要**",
-                    article.get("abstract_zh", ""),
-                    "\n**推荐理由**",
-                    article.get("recommendation", ""),
-                    "\n---", 
-                ]
-            )
+            # 严格按照要求的 7 项信息进行排列
+            lines.extend([
+                f"### {idx}. {article.get('title_zh', '无中文标题')}",
+                f"- **英文题目**：{article.get('title', 'N/A')}",
+                f"- **中文题目**：{article.get('title_zh', 'N/A')}",
+                f"- **DOI**：[{article.get('doi', 'N/A')}](https://doi.org/{article.get('doi', '')})",
+                f"- **发表日期**：{article.get('published_date', 'N/A')}",
+                f"- **发表期刊**：{article.get('journal', 'N/A')}",
+                "\n**中文摘要**",
+                f"{article.get('abstract_zh', '无摘要')}",
+                "\n**推荐理由**",
+                f"{article.get('recommendation', '无理由')}",
+                "\n---"
+            ])
 
         return "\n".join(lines)
 
