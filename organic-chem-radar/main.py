@@ -1,11 +1,11 @@
 """Entrypoint for Organic Chemistry Daily Radar pipeline."""
 
 from __future__ import annotations
-
+import os
 from dotenv import load_dotenv
 
 from feishu_bot import FeishuBot
-from journal_fetcher import fetch_recent_articles
+from journal_fetcher import fetch_recent_articles # 核心抓取逻辑在这里
 from semantic_filter import SemanticFilter
 from utils import deduplicate_by_doi, load_pushed_dois, log, save_pushed_dois
 
@@ -14,24 +14,29 @@ DOI_STORE = "pushed_dois.json"
 # 每日推荐的有机方法学文献上限
 MAX_METHODOLOGY = 3
 
-
 def run() -> None:
     """执行端到端的每日雷达工作流。"""
     load_dotenv()
     log("Daily radar started.")
 
-    # 1. 获取最近文献（受 journal_fetcher.py 中的日期范围控制）
+    # 1. 获取最近文献
+    # 提示：如果依然报错，请务必修改下方的 journal_fetcher.py 文件
     try:
         raw_articles = fetch_recent_articles()
     except Exception as exc:
-        log(f"Failed to fetch articles: {exc}")
+        log(f"CRITICAL ERROR: Failed to fetch articles: {exc}")
         raw_articles = []
+
+    if not raw_articles:
+        log("No articles fetched. Checking journal_fetcher logic or network.")
+        # 如果抓取不到文章，也要给飞书发个心跳，证明脚本在跑
+        # 可选：bot.send_markdown("今日未抓取到任何新文章，请检查 RSS 源状态。")
 
     # 2. DOI 去重
     candidates = deduplicate_by_doi(raw_articles)
     log(f"Fetched {len(raw_articles)} items, {len(candidates)} after deduplication.")
 
-    # 3. 加载历史推送记录，用于跨天去重
+    # 3. 加载历史推送记录
     pushed_dois = load_pushed_dois(DOI_STORE)
     
     carbene_papers = []
@@ -51,7 +56,10 @@ def run() -> None:
                 continue
 
             try:
-                # 使用 DeepSeek 进行分类（需配合修改后的 semantic_filter.py）
+                # 增加对文章关键字段的校验，防止分析时报错
+                if not article.get("title"):
+                    continue
+                    
                 result = screener.analyze_article(article, timeout=60)
                 if not result:
                     continue
@@ -59,46 +67,43 @@ def run() -> None:
                 merged = {**article, **result}
                 category = result.get("category", "none")
                 
-                # 分别存储卡宾类和通用方法学类文献
                 if category == "carbene":
                     carbene_papers.append(merged)
                 elif category == "methodology":
                     methodology_papers.append(merged)
                 
-                # 如果方法学文献已找齐且卡宾文献已搜寻足够，可提前结束以节省 API
+                # 提前终止逻辑（保持原样）
                 if len(methodology_papers) >= 10 and len(carbene_papers) >= 5:
                     break
 
             except Exception as exc:
-                log(f"Skip article due to screening failure: {exc}")
+                log(f"Screening failed for {article.get('title', 'Unknown')}: {exc}")
                 continue
 
-    # 5. 组合最终推送列表：全部最新卡宾文献 + 最多 3 篇有机方法学文献
+    # 5. 组合推送列表
     final_selection = carbene_papers + methodology_papers[:MAX_METHODOLOGY]
     has_carbene = len(carbene_papers) > 0
 
     # 6. 推送到飞书
     try:
         bot = FeishuBot()
-        # 将 has_carbene 状态传入，以便在无卡宾文献时进行提醒
         markdown = bot.build_markdown(final_selection, has_carbene=has_carbene)
         success = bot.send_markdown(markdown, timeout=20)
         
         if success:
             log(f"Pushed {len(final_selection)} articles to Feishu (Carbene: {len(carbene_papers)}, Methodology: {min(len(methodology_papers), MAX_METHODOLOGY)}).")
-            # 更新已推送记录
+            # 只有推送成功才更新 DOI 记录
             for item in final_selection:
                 doi = (item.get("doi") or "").strip().lower()
                 if doi:
                     pushed_dois.add(doi)
             save_pushed_dois(pushed_dois, DOI_STORE)
         else:
-            log("Feishu push failed.")
+            log("Feishu push status: FAILED")
     except Exception as exc:
-        log(f"Unexpected push error: {exc}")
+        log(f"Feishu integration error: {exc}")
 
     log("Daily radar finished.")
-
 
 if __name__ == "__main__":
     run()
