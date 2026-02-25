@@ -1,161 +1,93 @@
-"""Fetch and normalize latest papers from journal RSS feeds."""
-
-from __future__ import annotations
-
+import requests
+from bs4 import BeautifulSoup
 import re
-import time
-from datetime import datetime, timezone
-from email.utils import parsedate_to_datetime
-from typing import Dict, List
+from datetime import datetime
+from utils import log
 
-import feedparser
-
-from utils import is_within_last_7days, log
-
-RSS_SOURCES: Dict[str, str] = {
-    "Journal of the American Chemical Society": "https://pubs.acs.org/action/showFeed?type=etoc&feed=rss&jc=jacsat",
-    "ACS Catalysis": "https://pubs.acs.org/action/showFeed?type=etoc&feed=rss&jc=accacs",
-    "Organic Letters": "https://pubs.acs.org/action/showFeed?type=etoc&feed=rss&jc=orlef7",
-    "The Journal of Organic Chemistry": "https://pubs.acs.org/action/showFeed?type=etoc&feed=rss&jc=joceah",
-    "Accounts of Chemical Research": "https://pubs.acs.org/action/showFeed?type=etoc&feed=rss&jc=achre4",
-    "ACS Bio & Med Chem Au": "https://pubs.acs.org/action/showFeed?type=etoc&feed=rss&jc=abmcb8",
-    "ACS Organic & Inorganic Au": "https://pubs.acs.org/action/showFeed?type=etoc&feed=rss&jc=aoiabc",
-    "Angewandte Chemie International Edition": "https://onlinelibrary.wiley.com/feed/15213773/most-recent",
-    "Advanced Synthesis & Catalysis": "https://onlinelibrary.wiley.com/feed/16154169/most-recent",
-    "Chemical Science": "https://pubs.rsc.org/en/journals/rsslanding?journalcode=sc",
-    "Chemical Communications": "https://pubs.rsc.org/en/journals/rsslanding?journalcode=cc",
-    "Organic Chemistry Frontiers": "https://pubs.rsc.org/en/journals/rsslanding?journalcode=qo",
-    "Nature Chemistry": "https://www.nature.com/nchem.rss",
-    "Nature Catalysis": "https://www.nature.com/natcatal.rss",
-    "Nature Communications": "https://www.nature.com/ncomms.rss",
-    "Nature Synthesis": "https://www.nature.com/natsynth.rss",
-    "Nature Reviews Chemistry": "https://www.nature.com/natrevchem.rss",
-    "Journal of Organometallic Chemistry": "https://rss.sciencedirect.com/publication/science/0022328X",
-    "Tetrahedron": "https://rss.sciencedirect.com/publication/science/00404020",
-    "Synthesis": "https://www.thieme-connect.com/products/ejournals/rss/synthesis",
-    "Synlett": "https://www.thieme-connect.com/products/ejournals/rss/synlett",
-    "Science": "https://www.science.org/action/showFeed?type=axatoc&feed=rss&jc=science",
-}
-
-ALLOWED_TYPES = ("article", "research article", "review", "communication")
-DOI_PATTERN = re.compile(r"10\.\d{4,9}/[-._;()/:A-Za-z0-9]+")
-
-
-def parse_datetime(entry: feedparser.FeedParserDict) -> datetime | None:
-    """Parse publication datetime from RSS entry.
-
-    Args:
-        entry: RSS entry.
-
-    Returns:
-        Parsed datetime in UTC or None.
+def clean_xml_content(raw_content: str) -> str:
     """
-    for key in ("published", "updated", "created"):
-        value = entry.get(key)
-        if not value:
-            continue
-        try:
-            dt = parsedate_to_datetime(value)
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            return dt.astimezone(timezone.utc)
-        except (TypeError, ValueError):
-            continue
-
-    for key in ("published_parsed", "updated_parsed"):
-        value = entry.get(key)
-        if value:
-            try:
-                return datetime.fromtimestamp(time.mktime(value), tz=timezone.utc)
-            except (OverflowError, ValueError):
-                continue
-    return None
-
-
-def extract_doi(entry: feedparser.FeedParserDict) -> str:
-    """Extract DOI from an RSS entry.
-
-    Args:
-        entry: RSS entry.
-
-    Returns:
-        DOI string or empty string.
+    清洗 XML 字符串，剔除导致 'invalid token' 报错的低位非打印字符。
+    这是处理化学期刊 RSS 中特殊符号的关键。
     """
-    text_pool = [
-        entry.get("id", ""),
-        entry.get("link", ""),
-        entry.get("title", ""),
-        entry.get("summary", ""),
-    ]
-    for text in text_pool:
-        match = DOI_PATTERN.search(text or "")
-        if match:
-            return match.group(0)
+    if not raw_content:
+        return ""
+    # 仅保留合法的 XML 字符范围
+    illegal_chars = re.compile(
+        r'[^\x09\x0A\x0D\x20-\x7E\x85\xA0-\xFF\u0100-\uD7FF\uE000-\uFDCF\uFDE0-\uFFFD]'
+    )
+    return illegal_chars.sub('', raw_content)
 
-    for link in entry.get("links", []):
-        href = link.get("href", "")
-        match = DOI_PATTERN.search(href)
-        if match:
-            return match.group(0)
-
-    return ""
-
-
-def is_allowed_article_type(entry: feedparser.FeedParserDict) -> bool:
-    """Determine whether an entry matches allowed article types.
-
-    Args:
-        entry: RSS entry.
-
-    Returns:
-        True if entry appears to be article/research article/communication.
+def robust_fetch_rss(url: str, journal_name: str) -> list[dict]:
     """
-    candidates = [
-        entry.get("category", ""),
-        entry.get("dc_type", ""),
-        " ".join(tag.get("term", "") for tag in entry.get("tags", [])),
-        entry.get("title", ""),
-    ]
-    merged = " | ".join(candidates).lower()
-    return any(item in merged for item in ALLOWED_TYPES)
-
-
-def fetch_recent_articles() -> List[dict]:
-    """Fetch and normalize articles from configured RSS sources.
-
-    Returns:
-        List of normalized article dictionaries.
+    使用 lxml 引擎强力解析 RSS/Atom 源。
     """
-    all_articles: List[dict] = []
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    }
+    
+    articles = []
+    try:
+        response = requests.get(url, headers=headers, timeout=30)
+        response.raise_for_status()
+        
+        # 1. 预处理内容
+        content = clean_xml_content(response.text)
+        
+        # 2. 解析 (使用 lxml-xml 模式，具备强大的容错恢复能力)
+        soup = BeautifulSoup(content, 'xml')
+        
+        # 3. 兼容多种标签格式 (RSS 的 item 或 Atom 的 entry)
+        items = soup.find_all(['item', 'entry'])
+        
+        for item in items:
+            title = item.find('title').get_text(strip=True) if item.find('title') else "No Title"
+            
+            # 获取链接
+            link = ""
+            link_tag = item.find('link')
+            if link_tag:
+                link = link_tag.get_text(strip=True) or link_tag.get('href', "")
+            
+            # 获取摘要
+            abstract = ""
+            abstract_tag = item.find(['description', 'summary', 'content'])
+            if abstract_tag:
+                abstract = abstract_tag.get_text(strip=True)
+            
+            # 提取 DOI (尝试从 dc:identifier, prism:doi 或 link 中提取)
+            doi = ""
+            doi_tag = item.find(['dc:identifier', 'prism:doi', 'doi'])
+            if doi_tag:
+                doi = doi_tag.get_text(strip=True)
+            elif "doi.org/" in link:
+                doi = link.split("doi.org/")[-1].split("?")[0]
+            
+            articles.append({
+                "title": title,
+                "link": link,
+                "doi": doi.lower(), # 统一小写方便去重
+                "journal": journal_name,
+                "abstract": abstract,
+                "fetch_time": datetime.now().strftime("%Y-%m-%d")
+            })
+            
+    except Exception as e:
+        log(f"Warning: Failed to fetch {journal_name} from {url}. Error: {e}")
+        
+    return articles
 
-    for journal, url in RSS_SOURCES.items():
-        try:
-            log(f"Fetching RSS for {journal}")
-            feed = feedparser.parse(url)
-            if getattr(feed, "bozo", False):
-                log(f"Warning: malformed feed for {journal}: {feed.bozo_exception}")
-
-            for entry in feed.entries:
-                published = parse_datetime(entry)
-                # 使用新的 7 天判断逻辑
-                if not published or not is_within_last_7days(published):
-                    continue
-                if not is_allowed_article_type(entry):
-                    continue
-                # ... 后续逻辑保持不变
-
-                article = {
-                    "journal": journal,
-                    "title": (entry.get("title") or "").strip(),
-                    "abstract": (entry.get("summary") or "").strip(),
-                    "doi": extract_doi(entry),
-                    "published_date": published.isoformat(),
-                }
-                if article["title"]:
-                    all_articles.append(article)
-
-        except Exception as exc:  # noqa: BLE001
-            log(f"Failed to fetch {journal}: {exc}")
-            continue
-
-    return all_articles
+def fetch_recent_articles() -> list[dict]:
+    """
+    获取所有配置期刊的最新文献。
+    """
+    # 建议将你的期刊列表整理如下
+    journal_configs = [
+        {"name": "JACS", "url": "https://pubs.acs.org/journal/jacsat/feed"},
+        {"name": "ACS Catalysis", "url": "https://pubs.acs.org/journal/accacs/feed"},
+        {"name": "Organic Letters", "url": "https://pubs.acs.org/journal/orlef7/feed"},
+        {"name": "JOC", "url": "https://pubs.acs.org/journal/joceah/feed"},
+        {"name": "Angewandte", "url": "https://onlinelibrary.wiley.com/feed/15213773/most-recent"},
+        {"name": "Chemical Science", "url": "https://www.rsc.org/publishing/journals/sc/rss.asp"},
+        {"name": "ChemComm", "url": "https://www.rsc.org/publishing/journals/cc/rss.asp"},
+        {"name": "Org. Chem. Front.", "url": "https://www.rsc.org/publishing/journals/qo/rss.asp"},
+        {"name": "Nature Chemistry", "url": "
