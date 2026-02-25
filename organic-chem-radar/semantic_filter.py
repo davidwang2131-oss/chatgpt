@@ -12,7 +12,7 @@ from openai import OpenAI
 from utils import log
 
 BASE_URL = "https://api.deepseek.com"
-MODEL = "deepseek-chat"
+MODEL = "deepseek-reasoner"
 
 
 class SemanticFilter:
@@ -26,18 +26,30 @@ class SemanticFilter:
         self.client = OpenAI(api_key=api_key, base_url=BASE_URL)
 
     def _build_prompt(self, article: Dict[str, str]) -> str:
-        """更新提示词，增加类别标注"""
+        """为 deepseek-reasoner 优化的专家级化学审查 Prompt"""
         return (
-            "You are an expert in organic chemistry.\n"
-            "Task:\n"
-            "1) Classify the paper into exactly one category: 'carbene', 'methodology', or 'none'.\n"
-            "   - 'carbene': Research specifically about carbene chemistry.\n"
-            "   - 'methodology': General organic synthetic methodology or organometallic catalysis.\n"
-            "2) If category is 'none', output: NO\n"
-            "3) If related, output STRICT JSON with keys: category, title_zh, abstract_zh, recommendation\n"
-            "Requirements:\n"
-            "- abstract_zh: 3-5 Chinese sentences.\n"
-            "- recommendation: Focus on innovation.\n\n"
+            "You are a Senior Professor in Organic Chemistry specializing in Organometallic Catalysis.\n"
+            "### Target Research Interests:\n"
+            "1. **Carbene Chemistry (Highest Priority)**:\n"
+            "   - Core: Metal-carbene mediated transformations.\n"
+            "   - Precursors: Diazo compounds, N-sulfonylhydrazones, sulfur ylides, gem-dihalides, etc.\n"
+            "   - Ligand Focus: Pyridine-imine (P-I) ligands, Schiff bases, α-diimines, and related bidentate N,N-ligands.\n"
+            "   - Reactions: Cyclopropanation, X-H insertion (X=C, O, N, Si, S), ylide formation, and carbene cross-coupling.\n"
+            "   - *Note*: Include all carbene transfer reactions, NOT limited to C-H bond insertion.\n\n"
+            "2. **Organic Methodology (High Priority)**:\n"
+            "   - Focus: Novel catalytic systems, asymmetric synthesis, C-H activation, and photoredox/electrocatalysis.\n"
+            "   - *Exclusion*: Strictly exclude pure polymerization, material science, clinical bio-activity, or routine total synthesis.\n\n"
+            "### Task:\n"
+            "Analyze the provided Journal, Title, and Abstract. Classify into: 'carbene', 'methodology', or 'none'.\n"
+            "1. If category is 'none', output ONLY the word 'NO'.\n"
+            "2. If category is 'carbene' or 'methodology', output a VALID JSON object.\n\n"
+            "### JSON Schema:\n"
+            "{\n"
+            "  \"category\": \"carbene\" | \"methodology\",\n"
+            "  \"title_zh\": \"Professional Chinese title\",\n"
+            "  \"abstract_zh\": \"3-5 concise Chinese sentences summarizing the mechanism and significance\",\n"
+            "  \"recommendation\": \"Professional insight on innovation and relevance to pyridine-imine or carbene chemistry\"\n"
+            "}\n\n"
             f"Journal: {article.get('journal', '')}\n"
             f"Title: {article.get('title', '')}\n"
             f"Abstract: {article.get('abstract', '')}\n"
@@ -82,6 +94,7 @@ class SemanticFilter:
                         return None
 
                 return {
+                    "category": str(parsed.get("category", "none")).strip(), # 加上这一行
                     "title_zh": str(parsed["title_zh"]).strip(),
                     "abstract_zh": str(parsed["abstract_zh"]).strip(),
                     "recommendation": str(parsed["recommendation"]).strip(),
