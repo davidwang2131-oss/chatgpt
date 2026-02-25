@@ -19,7 +19,7 @@ def run() -> None:
     load_dotenv()
     log("Daily radar started.")
 
-    # 1. 获取最近文献（建议确保 journal_fetcher.py 已更新为 bs4+lxml 版本）
+    # 1. 获取最近文献
     try:
         raw_articles = fetch_recent_articles()
     except Exception as exc:
@@ -28,7 +28,6 @@ def run() -> None:
 
     if not raw_articles:
         log("No articles fetched. Checking journal_fetcher logic or network.")
-        # 这里可以选择是否给飞书发心跳包，保持沉默通常更适合这种自动化脚本
 
     # 2. DOI 去重
     candidates = deduplicate_by_doi(raw_articles)
@@ -57,14 +56,12 @@ def run() -> None:
                 if not article.get("title"):
                     continue
                     
-                # 使用 deepseek-reasoner 进行深度分析
+                # 使用 DeepSeek 接口进行分析
                 result = screener.analyze_article(article, timeout=60)
                 if not result:
                     continue
                 
-                # 合并原文数据与 AI 分析结果
                 merged = {**article, **result}
-                # result 字典中现在包含 category 字段
                 category = result.get("category", "none")
                 
                 if category == "carbene":
@@ -72,7 +69,6 @@ def run() -> None:
                 elif category == "methodology":
                     methodology_papers.append(merged)
                 
-                # 提前终止逻辑：如果两类文献都搜集够了，停止调用 API 以节省成本
                 if len(methodology_papers) >= 10 and len(carbene_papers) >= 5:
                     break
 
@@ -80,16 +76,34 @@ def run() -> None:
                 log(f"Screening failed for {article.get('title', 'Unknown')}: {exc}")
                 continue
 
-    # 5. 组合最终推送列表
+    # 5. 组合推送列表
     final_selection = carbene_papers + methodology_papers[:MAX_METHODOLOGY]
     has_carbene = len(carbene_papers) > 0
 
-    # 6. 推送到飞书（改为发送交互式卡片）
+    # 6. 推送到飞书
     try:
         bot = FeishuBot()
-        
-        # --- 核心改动点 ---
-        # 1. 调用新的 build_card 方法构建 JSON 结构
+        # 构建卡片 JSON 结构
         card_payload = bot.build_card(final_selection, has_carbene=has_carbene)
+        # 发送卡片
+        success = bot.send_card(card_payload, timeout=20)
         
-        #
+        if success:
+            log(f"Pushed {len(final_selection)} articles to Feishu (Carbene: {len(carbene_papers)}, Methodology: {min(len(methodology_papers), MAX_METHODOLOGY)}).")
+            # 只有推送成功才更新 DOI 记录
+            for item in final_selection:
+                doi = (item.get("doi") or "").strip().lower()
+                if doi:
+                    pushed_dois.add(doi)
+            save_pushed_dois(pushed_dois, DOI_STORE)
+        else:
+            log("Feishu push status: FAILED")
+            
+    except Exception as exc:
+        log(f"Feishu integration error: {exc}")
+
+    log("Daily radar finished.")
+
+
+if __name__ == "__main__":
+    run()
